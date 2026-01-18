@@ -6,7 +6,7 @@ from aiogram.enums import ParseMode
 from groq import Groq
 
 # ============ НАСТРОЙКИ ============
-TELEGRAM_TOKEN = "7860018044:AAGRy4G3gGFoPhW8lRCQVHuJtb6Y_W7AyW4"  # Твой токен (удали из публичного кода!)
+TELEGRAM_TOKEN = "8373375366:AAEJyCescKsmltC9xMLtkKg9ocPNiM503X4"  # Твой токен (удали из публичного кода!)
 GROQ_API_KEY = "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"  # Получи бесплатно!
 
 # ============ ИНИЦИАЛИЗАЦИЯ ============
