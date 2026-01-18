@@ -3,19 +3,22 @@ import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
-from groq import Groq
+import google.generativeai as genai
 
 # ============ НАСТРОЙКИ ============
 TELEGRAM_TOKEN = "8373375366:AAEJyCescKsmltC9xMLtkKg9ocPNiM503X4"
-GROQ_API_KEY = "AIzaSyCakMKDuS-k3XFjlBieTQa-iWokPo2GlkE"  # Получи на https://console.groq.com
+GEMINI_API_KEY = "AIzaSyCakMKDuS-k3XFjlBieTQa-iWokPo2GlkE"  # Твой полный ключ
 
 # ============ ИНИЦИАЛИЗАЦИЯ ============
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-groq_client = Groq(api_key=GROQ_API_KEY)
 
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Системный промпт
 SYSTEM_PROMPT = """Ты — бот технической поддержки BotHost.ru.
 
 Твои задачи:
@@ -26,18 +29,26 @@ SYSTEM_PROMPT = """Ты — бот технической поддержки Bot
 
 Правила:
 - Отвечай на русском языке
-- Будь дружелюбным
-- Давай конкретные решения с примерами кода"""
+- Будь дружелюбным и терпеливым
+- Давай конкретные решения с примерами кода
+- Код оформляй в блоках```"""
 
+# Хранилище историй
 user_histories = {}
+
+# ============ ОБРАБОТЧИКИ ============
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_histories[message.from_user.id] = []
+    
     await message.answer(
         "👋 Привет! Я бот техподдержки **BotHost.ru**\n\n"
-        "Помогу с кодом, ошибками и хостингом!\n\n"
-        "📝 Напиши свой вопрос\n"
+        "Помогу тебе с:\n"
+        "• Ошибками в коде\n"
+        "• Вопросами по Python/aiogram\n"
+        "• Проблемами с хостингом ботов\n\n"
+        "📝 Просто напиши свой вопрос!\n\n"
         "/clear — очистить историю",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -57,19 +68,17 @@ async def handle_message(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
     
     try:
-        user_histories[user_id].append({"role": "user", "content": message.text})
+        # Формируем промпт с историей
+        user_histories[user_id].append(f"Пользователь: {message.text}")
         
-        # Ограничиваем историю
-        history = user_histories[user_id][-20:]
+        full_prompt = SYSTEM_PROMPT + "\n\nИстория диалога:\n" + "\n".join(user_histories[user_id][-10:]) + "\n\nАссистент:"
         
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history
-        )
+        response = model.generate_content(full_prompt)
+        answer = response.text
         
-        answer = response.choices[0].message.content
-        user_histories[user_id].append({"role": "assistant", "content": answer})
+        user_histories[user_id].append(f"Ассистент: {answer}")
         
+        # Лимит Telegram
         if len(answer) > 4000:
             for i in range(0, len(answer), 4000):
                 await message.answer(answer[i:i+4000])
@@ -78,8 +87,9 @@ async def handle_message(message: types.Message):
             
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-        await message.answer(f"❌ Ошибка: {e}")
+        await message.answer(f"❌ Ошибка: {e}\n\nПопробуй /clear")
 
+# ============ ЗАПУСК ============
 async def main():
     print("✅ Бот запущен!")
     await dp.start_polling(bot)
