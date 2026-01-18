@@ -5,138 +5,89 @@ from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from groq import Groq
 
-# ============ НАСТРОЙКИ ============
-TELEGRAM_TOKEN = "8373375366:AAEJyCescKsmltC9xMLtkKg9ocPNiM503X4"  # Твой токен (удали из публичного кода!)
-GROQ_API_KEY = "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"  # Получи бесплатно!
+# ==========================================
+# 👇 ВНИМАТЕЛЬНО ЗАПОЛНИ ЭТИ ДВЕ СТРОЧКИ 👇
+# ==========================================
 
-# ============ ИНИЦИАЛИЗАЦИЯ ============
+# 1. Твой ключ от Groq (начинается на gsk_)
+GROQ_API_KEY = "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"
+
+# 2. Токен от BotFather (цифры:буквы)
+TELEGRAM_TOKEN = "8373375366:AAEJyCescKsmltC9xMLtkKg9ocPNiM503X4"
+
+# ==========================================
+
 logging.basicConfig(level=logging.INFO)
-
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-groq_client = Groq(api_key=GROQ_API_KEY)
 
-SYSTEM_PROMPT = """Ты — бот технической поддержки BotHost.ru.
+# Инициализация Groq
+client = Groq(api_key=GROQ_API_KEY)
 
-Помогаешь с:
-- Ошибками в коде Python
-- Telegram ботами (aiogram, telebot)
-- Деплоем на BotHost
-- Любыми вопросами по программированию
+# Актуальная модель (Mixtral удалили, используем Llama 3.3)
+CURRENT_MODEL = "llama-3.3-70b-versatile"
 
-Всегда отвечай на русском языке.
-Код оформляй в блоках ```python или ```"""
+SYSTEM_PROMPT = """Ты — дружелюбный бот технической поддержки BotHost.ru. 
+Твоя задача — помогать пользователям с их ботами (Python, aiogram) и хостингом.
+Отвечай кратко, по делу и на русском языке. Код пиши в блоках."""
 
-user_chats = {}
+user_histories = {}
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user_chats[message.from_user.id] = []
-    
+    user_histories[message.from_user.id] = []
     await message.answer(
-        "👋 **Привет! Я техподдержка BotHost.ru**\n\n"
-        "Помогу тебе с:\n"
-        "🔹 Ошибками в коде\n"
-        "🔹 Telegram ботами\n" 
-        "🔹 Деплоем на BotHost\n"
-        "🔹 Python и другими языками\n\n"
-        "📝 **Просто опиши проблему или скинь код!**\n\n"
-        "Команды:\n"
-        "/clear — новый диалог\n"
-        "/help — подробная помощь",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-@dp.message(Command("help"))
-async def cmd_help(message: types.Message):
-    await message.answer(
-        "📖 **Как пользоваться:**\n\n"
-        "1️⃣ Опиши проблему подробно\n"
-        "2️⃣ Если есть ошибка — скинь её текст\n"
-        "3️⃣ Если проблема с кодом — отправь код\n\n"
-        "**Примеры вопросов:**\n"
-        "• Как сделать inline кнопки в aiogram?\n"
-        "• Ошибка: AttributeError в строке 15\n"
-        "• Как подключить базу данных к боту?\n\n"
-        "💡 Бот помнит контекст диалога!",
+        "👋 **Привет! Я техподдержка BotHost.**\n\n"
+        "Я обновлен и работаю на модели **Llama 3.3** (через Groq).\n"
+        "Задай мне любой вопрос по коду!",
         parse_mode=ParseMode.MARKDOWN
     )
 
 @dp.message(Command("clear"))
 async def cmd_clear(message: types.Message):
-    user_chats[message.from_user.id] = []
-    await message.answer("🔄 История очищена! Начинаем новый диалог.")
+    user_histories[message.from_user.id] = []
+    await message.answer("✅ Память бота очищена.")
 
 @dp.message(F.text)
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
+    if user_id not in user_histories: user_histories[user_id] = []
     
-    # Создаём историю если нет
-    if user_id not in user_chats:
-        user_chats[user_id] = []
-    
-    # Показываем typing
+    # Показываем статус "печатает..."
     await bot.send_chat_action(message.chat.id, "typing")
     
     try:
-        # Добавляем в историю
-        user_chats[user_id].append({
-            "role": "user", 
-            "content": message.text
-        })
+        # Добавляем сообщение в историю
+        user_histories[user_id].append({"role": "user", "content": message.text})
         
-        # Ограничиваем историю последними 10 сообщениями
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(user_chats[user_id][-10:])
+        # Ограничиваем историю (последние 8 сообщений), чтобы не перегружать
+        messages_payload = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id][-8:]
         
-        # Запрос к Groq
-        response = groq_client.chat.completions.create(
-            model="mixtral-8x7b-32768",  # Быстрая модель
-            messages=messages,
+        completion = client.chat.completions.create(
+            model=CURRENT_MODEL,
+            messages=messages_payload,
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=1024,
         )
         
-        answer = response.choices[0].message.content
+        answer = completion.choices[0].message.content
+        user_histories[user_id].append({"role": "assistant", "content": answer})
         
-        # Сохраняем ответ
-        user_chats[user_id].append({
-            "role": "assistant",
-            "content": answer
-        })
+        await message.answer(answer, parse_mode=ParseMode.MARKDOWN)
         
-        # Отправляем (разбиваем если длинный)
-        if len(answer) > 4000:
-            for i in range(0, len(answer), 4000):
-                await message.answer(answer[i:i+4000])
-        else:
-            await message.answer(answer)
-            
     except Exception as e:
-        logging.error(f"Ошибка Groq: {e}")
-        await message.answer(
-            "❌ **Произошла ошибка**\n\n"
-            f"```{str(e)}```\n\n"
-            "Попробуй:\n"
-            "• Написать вопрос по-другому\n"
-            "• Использовать /clear\n"
-            "• Подождать минуту",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-# Обработка фото с кодом
-@dp.message(F.photo)
-async def handle_photo(message: types.Message):
-    await message.answer(
-        "📸 Я пока не умею читать изображения.\n\n"
-        "**Скопируй код текстом** и отправь мне!",
-        parse_mode=ParseMode.MARKDOWN
-    )
+        error_msg = str(e)
+        logging.error(f"Error: {error_msg}")
+        
+        if "401" in error_msg:
+            await message.answer("❌ Ошибка ключа API. Проверь GROQ_API_KEY в коде.")
+        elif "400" in error_msg:
+             await message.answer("❌ Ошибка модели. Попробуй позже.")
+        else:
+            await message.answer(f"❌ Ошибка: {error_msg}")
 
 async def main():
-    print("=" * 40)
-    print("✅ БОТ ТЕХПОДДЕРЖКИ ЗАПУЩЕН!")
-    print("=" * 40)
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
